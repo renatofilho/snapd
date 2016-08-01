@@ -24,6 +24,7 @@ import (
 )
 
 var allInterfaces = []interfaces.Interface{
+	&AddressBookInterface{},
 	&BoolFileInterface{},
 	&BluezInterface{},
 	&BrowserSupportInterface{},
