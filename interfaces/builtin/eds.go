@@ -26,6 +26,123 @@ import (
 	"github.com/snapcore/snapd/interfaces"
 )
 
+var edsPermanentSlotAppArmor = []byte(`
+# Description: Allow operating as the EDS service. Reserved because this
+#  gives privileged access to the system.
+# Usage: reserved
+
+# DBus accesses
+#include <abstractions/dbus-session-strict>
+dbus (send)
+	bus=session
+	path=/org/freedesktop/DBus
+	interface=org.freedesktop.DBus
+	member={Request,Release}Name
+	peer=(name=org.freedesktop.DBus),
+
+dbus (send)
+	bus=session
+	path=/org/freedesktop/*
+	interface=org.freedesktop.DBus.Properties
+	peer=(label=unconfined),
+
+# Allow services to communicate with each other
+dbus (receive, send)
+	peer=(label="snap.@{SNAP_NAME}.*"),
+
+# Allow binding the service to the requested connection name
+dbus (bind)
+	bus=session
+	name="org.gnome.evolution.dataserver.Sources5",
+dbus (bind)
+	bus=session
+	name="org.gnome.evolution.dataserver.AddressBook9",
+dbus (bind)
+	bus=session
+	name="org.gnome.evolution.dataserver.Calendar7",
+dbus (bind)
+	bus=session
+	name=org.gnome.evolution.dataserver.Subprocess.Backend.*,
+
+########################
+# SourceManager
+########################
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/SourceManager{,/**},
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/SourceManager{,/**}
+	interface=org.gnome.evolution.dataserver.Source{,.*},
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/SourceManager{,/**}
+	interface=org.freedesktop.DBus.*,
+
+
+########################
+# Calendar
+########################
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/CalendarFactory,
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/CalendarFactory
+	interface=org.gnome.evolution.dataserver.CalendarFactory,
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/CalendarFactory
+	interface=org.freedesktop.DBus.*,
+
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/CalendarView/**,
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/CalendarView/**
+	interface=org.gnome.evolution.dataserver.CalendarView,
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/CalendarView/**
+	interface=org.freedesktop.DBus.*,
+
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/Subprocess/Backend/Calendar/**
+	interface=org.gnome.evolution.dataserver.Subprocess.Backend,
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/Subprocess/Backend/Calendar/**
+	interface=org.freedesktop.DBus.*,
+
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/Subprocess/**
+	interface=org.gnome.evolution.dataserver.Calendar,
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/Subprocess/**
+	interface=org.freedesktop.DBus.*,
+
+
+########################
+# SubProcess
+########################
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/Subprocess/**,
+
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/Subprocess/Backend
+	interface=org.gnome.evolution.dataserver.Subprocess.Backend,
+dbus (receive, send)
+	bus=session
+	path=/org/gnome/evolution/dataserver/Subprocess/Backend
+	interface=org.freedesktop.DBus.*,
+`)
+
 var edsCommomConnectedPlugAppArmor = []byte(`
 # DBus accesses
 #include <abstractions/dbus-session-strict>
@@ -94,13 +211,11 @@ dbus (receive, send)
      peer=(label=unconfined),
 `)
 
-var edsConnectedPlugSecComp = []byte(`
-# Description: Can access the calendar. This policy group is reserved for
-#  vetted applications only in this version of the policy. Once LP: #1227824
-#  is fixed, this can be moved out of reserved status.
+var edsPermanentSlotSecComp = []byte(`
+# Description: Allow operating as the EDS service. Reserved because this
+# gives
+#  privileged access to the system.
 # Usage: reserved
-
-# Can communicate with DBus system service
 accept
 accept4
 bind
@@ -121,6 +236,45 @@ setsockopt
 shutdown
 socketpair
 socket
+`)
+
+var edsConnectedPlugSecComp = []byte(`
+# Description: Allow using EDS service. Reserved because this gives
+#  privileged access to the bluez service.
+# Usage: reserved
+
+# Can communicate with DBus system service
+connect
+getsockname
+recv
+recvmsg
+send
+sendto
+sendmsg
+socket
+`)
+
+var edsPermanentSlotDBus = []byte(`
+<policy user="root">
+	<allow own="org.gnome.evolution.dataserver.Sources5"/>
+	<allow send_destination="org.gnome.evolution.dataserver.Sources5"/>
+	<allow send_interface="org.gnome.evolution.dataserver.SourceManager"/>
+	<allow send_interface="org.gnome.evolution.dataserver.Source"/>
+	<allow send_interface="org.gnome.evolution.dataserver.Source.Writable"/>
+	<allow send_interface="org.gnome.evolution.dataserver.Source.Removable"/>
+
+	<allow own="org.gnome.evolution.dataserver.Calendar7"/>
+	<allow send_destination="org.gnome.evolution.dataserver.Calendar7"/>
+	<allow send_interface="org.gnome.evolution.dataserver.Calendar"/>
+	<allow send_interface="org.gnome.evolution.dataserver.CalendarView"/>
+	<allow send_interface="org.gnome.evolution.dataserver.CalendarFactory"/>
+
+	<allow send_interface="org.gnome.evolution.dataserver.Subprocess.Backend"/>
+
+	<allow send_interface="org.freedesktop.DBus.Properties"/>
+	<allow send_interface="org.freedesktop.DBus.ObjectManager"/>
+	<allow send_interface="org.freedesktop.DBus.Introspectable"/>
+</policy>
 `)
 
 var edsServices = []string {"calendar", "contact"}
@@ -170,7 +324,13 @@ func (iface *EDSInterface) ConnectedPlugSnippet(plug *interfaces.Plug, slot *int
 
 func (iface *EDSInterface) PermanentSlotSnippet(slot *interfaces.Slot, securitySystem interfaces.SecuritySystem) ([]byte, error) {
 	switch securitySystem {
-	case interfaces.SecurityDBus, interfaces.SecurityAppArmor, interfaces.SecuritySecComp, interfaces.SecurityUDev, interfaces.SecurityMount:
+	case interfaces.SecurityAppArmor:
+		return edsPermanentSlotAppArmor, nil
+	case interfaces.SecuritySecComp:
+		return edsPermanentSlotSecComp, nil
+	case interfaces.SecurityDBus:
+		return edsPermanentSlotDBus, nil
+	case interfaces.SecurityUDev, interfaces.SecurityMount:
 		return nil, nil
 	default:
 		return nil, interfaces.ErrUnknownSecurity
